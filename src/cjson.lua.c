@@ -7,6 +7,44 @@
 static int _lua_cjson_serialize(lua_State* L, int idx, cJSON* obj, const char* k);
 static int _lua_cjson_deserialize(lua_State* L, cJSON* v);
 
+typedef struct lua_cjson
+{
+    cJSON* obj;
+} lua_cjson_t;
+
+static int _cjson_gc(lua_State* L)
+{
+    lua_cjson_t* self = lua_touserdata(L, 1);
+
+    if (self->obj != NULL)
+    {
+        cJSON_Delete(self->obj);
+        self->obj = NULL;
+    }
+
+    return 0;
+}
+
+static lua_cjson_t* _cjson_make_json(lua_State* L)
+{
+    lua_cjson_t* obj = lua_newuserdata(L, sizeof(lua_cjson_t));
+    obj->obj = NULL;
+
+    static const luaL_Reg s_meta[] = {
+        { "__gc",   _cjson_gc },
+        { NULL,     NULL },
+    };
+    if (luaL_newmetatable(L, "__cjson") != 0)
+    {
+        luaL_setfuncs(L, s_meta, 0);
+    }
+    lua_setmetatable(L, -2);
+
+    obj->obj = cJSON_CreateObject();
+
+    return obj;
+}
+
 static int _cjson_serialize(lua_State* L)
 {
     return lua_cjson_serialize(L, 1);
@@ -261,19 +299,18 @@ int luaopen_cjson(lua_State* L)
 
 int lua_cjson_serialize(lua_State* L, int idx)
 {
-    cJSON* obj = cJSON_CreateObject();
-    int ret = _lua_cjson_serialize(L, idx, obj, "v");
+    lua_cjson_t* obj = _cjson_make_json(L); // sp + 1
 
-    if (ret != 0)
+    if (_lua_cjson_serialize(L, idx, obj->obj, "v") != 0)
     {
-        cJSON_Delete(obj);
         return lua_error(L);
     }
 
-    char* str = cJSON_PrintUnformatted(obj);
+    char* str = cJSON_PrintUnformatted(obj->obj);
+    lua_pop(L, 1); // sp
+
     lua_pushstring(L, str);
     cJSON_free(str);
-    cJSON_Delete(obj);
 
     return 1;
 }
@@ -283,17 +320,25 @@ int lua_cjson_deserialize(lua_State* L, int idx)
     size_t data_sz = 0;
     const char* data = luaL_checklstring(L, idx, &data_sz);
 
+    int sp = lua_gettop(L);
+
+    lua_cjson_t* obj = _cjson_make_json(L); // sp + 1
+    cJSON_Delete(obj->obj); obj->obj = NULL;
+
     char* return_parse_end = NULL;
-    cJSON* obj = cJSON_ParseWithLengthOpts(data, data_sz, &return_parse_end, 0);
-    if (obj == NULL)
+    obj->obj = cJSON_ParseWithLengthOpts(data, data_sz, &return_parse_end, 0);
+
+    if (obj->obj == NULL)
     {
-        lua_pushfstring(L, "JSON parser failed at `%s`", return_parse_end);
+        lua_pop(L, 1); // sp
+        lua_pushfstring(L, "JSON parser failed at `%s`", return_parse_end); // sp + 1
         return lua_error(L);
     }
 
-    cJSON* v = cJSON_GetObjectItem(obj, "v");
-    int ret = _lua_cjson_deserialize(L, v);
-    cJSON_Delete(obj);
+    cJSON* v = cJSON_GetObjectItem(obj->obj, "v");
+    int ret = _lua_cjson_deserialize(L, v); // sp + 2
+    lua_remove(L, sp + 1);
+
     if (ret != 0)
     {
         return lua_error(L);
