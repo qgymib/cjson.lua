@@ -6,6 +6,7 @@
 
 static int _lua_cjson_serialize(lua_State* L, int idx, cJSON* obj, const char* k);
 static int _lua_cjson_deserialize(lua_State* L, cJSON* v);
+static int _cjson_from_json_array(lua_State* L, int idx, cJSON* obj);
 
 typedef struct lua_cjson
 {
@@ -281,9 +282,136 @@ error:
     return lua_error(L);
 }
 
+static int _cjson_from_json_object(lua_State* L, int idx, cJSON* obj)
+{
+    cJSON* ele;
+    cJSON_ArrayForEach(ele, obj)
+    {
+        lua_pushstring(L, ele->string);
+
+		if (cJSON_IsBool(ele))
+		{
+			lua_pushboolean(L, ele->valueint);
+		}
+		else if (cJSON_IsNull(ele))
+		{
+			lua_pushlightuserdata(L, NULL);
+		}
+		else if (cJSON_IsNumber(ele))
+		{
+			lua_pushnumber(L, ele->valuedouble);
+		}
+		else if (cJSON_IsString(ele))
+		{
+			lua_pushstring(L, ele->valuestring);
+		}
+		else if (cJSON_IsArray(ele))
+		{
+			int sp = lua_gettop(L);
+			lua_newtable(L);
+			_cjson_from_json_array(L, sp + 1, ele);
+		}
+		else if (cJSON_IsObject(ele) || cJSON_IsRaw(ele))
+		{
+			int sp = lua_gettop(L);
+			lua_newtable(L);
+			_cjson_from_json_object(L, sp + 1, ele);
+		}
+		else
+		{
+			return luaL_error(L, "invalid json object type %d.", ele->type);
+		}
+
+		lua_settable(L, idx);
+    }
+
+    return 0;
+}
+
+static int _cjson_from_json_array(lua_State* L, int idx, cJSON* obj)
+{
+	cJSON* ele;
+    size_t pos = 1;
+	cJSON_ArrayForEach(ele, obj)
+	{
+        lua_pushinteger(L, pos);
+
+        if (cJSON_IsBool(ele))
+        {
+            lua_pushboolean(L, ele->valueint);
+        }
+        else if (cJSON_IsNull(ele))
+        {
+            lua_pushlightuserdata(L, NULL);
+        }
+        else if (cJSON_IsNumber(ele))
+        {
+            lua_pushnumber(L, ele->valuedouble);
+        }
+        else if (cJSON_IsString(ele))
+        {
+            lua_pushstring(L, ele->valuestring);
+        }
+        else if (cJSON_IsArray(ele))
+        {
+            int sp = lua_gettop(L);
+            lua_newtable(L);
+            _cjson_from_json_array(L, sp + 1, ele);
+        }
+        else if (cJSON_IsObject(ele) || cJSON_IsRaw(ele))
+        {
+			int sp = lua_gettop(L);
+			lua_newtable(L);
+            _cjson_from_json_object(L, sp + 1, ele);
+        }
+        else
+        {
+            return luaL_error(L, "invalid json object type %d.", ele->type);
+        }
+
+        lua_settable(L, idx);
+        pos++;
+	}
+
+    return 0;
+}
+
+static int _cjson_from_json(lua_State* L)
+{
+    int sp = lua_gettop(L);
+
+    size_t data_sz = 0;
+    const char* data = luaL_checklstring(L, 1, &data_sz);
+
+    cJSON* object = cJSON_ParseWithLength(data, data_sz);
+    if (object == NULL)
+    {
+        return 0;
+    }
+
+    lua_newtable(L); //sp+1
+    if (cJSON_IsObject(object))
+    {
+        _cjson_from_json_object(L, sp + 1, object);
+    }
+    else if (cJSON_IsArray(object))
+    {
+        _cjson_from_json_array(L, sp + 1, object);
+    }
+    else
+    {
+        return luaL_error(L, "invalid json object type %d.", object->type);
+    }
+
+    cJSON_Delete(object);
+
+    return 1;
+}
+
 int luaopen_cjson(lua_State* L)
 {
     static const luaL_Reg s_apis[] = {
+        { "from_json",      _cjson_from_json },
         { "serialize",      _cjson_serialize },
         { "deserialize",    _cjson_deserialize },
         { "compare",        _cjson_compare },
