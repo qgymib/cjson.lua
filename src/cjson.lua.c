@@ -453,7 +453,7 @@ int lua_cjson_deserialize(lua_State* L, int idx)
     lua_cjson_t* obj = _cjson_make_json(L); // sp + 1
     cJSON_Delete(obj->obj); obj->obj = NULL;
 
-    char* return_parse_end = NULL;
+    const char* return_parse_end = NULL;
     obj->obj = cJSON_ParseWithLengthOpts(data, data_sz, &return_parse_end, 0);
 
     if (obj->obj == NULL)
