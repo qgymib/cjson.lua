@@ -252,13 +252,13 @@ static int _cjson_compare(lua_State* L)
     if ((v1_json = cJSON_ParseWithLengthOpts(v1, v1_sz, &err_pos, 0)) == NULL)
     {
         lua_pushfstring(L, "parser argument #1 as json failed at `%s`", err_pos);
-        goto error;
+        goto handle_error;
     }
 
     if ((v2_json = cJSON_ParseWithLengthOpts(v2, v2_sz, &err_pos, 0)) == NULL)
     {
 		lua_pushfstring(L, "parser argument #2 as json failed at `%s`", err_pos);
-		goto error;
+		goto handle_error;
     }
 
     int ret = cJSON_Compare(v1_json, v2_json, 1);
@@ -268,7 +268,7 @@ static int _cjson_compare(lua_State* L)
     lua_pushboolean(L, ret);
     return 1;
 
-error:
+handle_error:
     if (v1_json != NULL)
     {
         cJSON_Delete(v1_json);
